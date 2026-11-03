@@ -65,6 +65,9 @@ func podmanForceRemoveContainer(name string) error {
 }
 
 func realControlService(serviceName, serviceType, action string) (bool, string) {
+	if runningInKube() {
+		return kubeControlService(serviceName, action)
+	}
 	if serviceName == "admin" && action == "restart" {
 		_ = os.Remove(bootstrap.RestartFlagPath)
 		_ = exec.Command("bash", "-c", "sleep 2 && systemctl restart admin").Start()
@@ -169,6 +172,16 @@ func loadMonitoredServices() []map[string]interface{} {
 	if json.Unmarshal(raw, &services) != nil {
 		return nil
 	}
+	if runningInKube() {
+		// systemd/host services (cron, csf, ssh, caddy, ...) don't exist on OKD
+		kept := services[:0]
+		for _, svc := range services {
+			if name, _ := svc["real_name"].(string); kubeServiceDeployments[name] != "" {
+				kept = append(kept, svc)
+			}
+		}
+		return kept
+	}
 	return services
 }
 
@@ -236,6 +249,12 @@ func getServiceStatusFromCache(service map[string]interface{}, dockerCache, syst
 	}
 	realName, _ := service["real_name"].(string)
 	serviceType, _ := service["type"].(string)
+
+	if runningInKube() {
+		if deployment, ok := kubeDeploymentFor(realName); ok {
+			return kubeDeploymentReady(deployment)
+		}
+	}
 
 	if serviceType == "docker" {
 		coreDocker := map[string]bool{
