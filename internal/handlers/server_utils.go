@@ -95,6 +95,24 @@ func loadSystemTimezones() []string {
 	return zones
 }
 
+// setTimezone uses timedatectl and, where systemd is missing (containers), repoints /etc/localtime instead
+func setTimezone(zone string) (string, error) {
+	_, stderr, err := timedatectlRun("set-timezone", zone)
+	if err == nil {
+		return "", nil
+	}
+	target := filepath.Join(zoneinfoRoot, zone)
+	if _, statErr := os.Stat(target); statErr != nil {
+		return stderr, err
+	}
+	_ = os.Remove("/etc/localtime")
+	if lnErr := os.Symlink(target, "/etc/localtime"); lnErr != nil {
+		return stderr + " " + lnErr.Error(), lnErr
+	}
+	_ = os.WriteFile("/etc/timezone", []byte(zone+"\n"), 0644)
+	return "", nil
+}
+
 func currentTimezone() (string, error) {
 	out, _, err := timedatectlRun("show", "--property=Timezone", "--value")
 	if err == nil && out != "" {
@@ -102,7 +120,14 @@ func currentTimezone() (string, error) {
 	}
 	link, linkErr := os.Readlink("/etc/localtime")
 	if linkErr != nil {
-		return "", linkErr
+		// containers have no systemd and often no /etc/localtime
+		if tz := strings.TrimSpace(os.Getenv("TZ")); tz != "" {
+			return tz, nil
+		}
+		if raw, err := os.ReadFile("/etc/timezone"); err == nil && strings.TrimSpace(string(raw)) != "" {
+			return strings.TrimSpace(string(raw)), nil
+		}
+		return "UTC", nil
 	}
 	if idx := strings.Index(link, "zoneinfo/"); idx != -1 {
 		return link[idx+len("zoneinfo/"):], nil
@@ -134,7 +159,7 @@ func (s *ServerUtils) ServeTimezone(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, http.StatusBadRequest, "Invalid timezone: "+selected)
 			return
 		}
-		if _, stderr, err := timedatectlRun("set-timezone", selected); err != nil {
+		if stderr, err := setTimezone(selected); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "Error changing timezone to "+selected+": "+stderr)
 			return
 		}

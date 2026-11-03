@@ -40,7 +40,7 @@ func (a *APIServerOps) ServeTimezone(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, http.StatusBadRequest, "Invalid timezone: "+body.Timezone)
 			return
 		}
-		if _, stderr, err := timedatectlRun("set-timezone", body.Timezone); err != nil {
+		if stderr, err := setTimezone(body.Timezone); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "Error changing timezone to "+body.Timezone+": "+stderr)
 			return
 		}
