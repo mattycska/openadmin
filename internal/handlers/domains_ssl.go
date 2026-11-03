@@ -292,12 +292,8 @@ func (h *SSLPage) ServeSSL(w http.ResponseWriter, r *http.Request) {
 
 	// See the file-level comment: this reproduces a genuine
 	// referenced-before-assignment crash.
-	if !currentSettingSet {
-		panic("UnboundLocalError: cannot access local variable 'current_setting' where it is not associated with a value")
-	}
-	if !keysSet {
-		panic("UnboundLocalError: cannot access local variable 'keys' where it is not associated with a value")
-	}
+	// a failed lookup is already flashed to the user, so render the page instead of crashing
+	_, _ = currentSettingSet, keysSet
 
 	webtemplates.Render(w, "domains_ssl.html", mergeChrome(map[string]interface{}{
 		"DomainName":     domainName,
