@@ -1082,13 +1082,18 @@ func newHandler(d appDeps) (http.Handler, error) {
 	mux.HandleFunc("POST /server/cluster/move", clusterAdmin(clusterPage.SuperAdmin(clusterPage.RequireLicense(clusterPage.HandleMove))))
 	mux.HandleFunc("POST /server/cluster/move/{id}/{action}", clusterAdmin(clusterPage.SuperAdmin(clusterPage.HandleMoveFinish)))
 
-	csrfMiddleware := csrf.Protect(deriveCSRFKey(d.SecretKey),
+	csrfOpts := []csrf.Option{
 		csrf.FieldName("csrf_token"),
 		csrf.RequestHeader("X-CSRFToken"),
 		csrf.Secure(d.UseTLS),
 		csrf.Path("/"),
 		csrf.ErrorHandler(handlers.CSRFErrorHandler()),
-	)
+	}
+	// behind a TLS-terminating proxy the browser's Origin is https while this server sees plain HTTP
+	if origins := strings.Fields(strings.ReplaceAll(os.Getenv("OPENADMIN_TRUSTED_ORIGINS"), ",", " ")); len(origins) > 0 {
+		csrfOpts = append(csrfOpts, csrf.TrustedOrigins(origins))
+	}
+	csrfMiddleware := csrf.Protect(deriveCSRFKey(d.SecretKey), csrfOpts...)
 
 	var handler http.Handler = handlers.NotFoundHandler(mux)
 	handler = handlers.ActivityMiddleware(handler)
